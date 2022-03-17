@@ -25,7 +25,13 @@ data class Chat(
     @EncodeDefault var arrivedServerAt: Long = 0,
     @EncodeDefault var receivedAt: Long = 0,
     @EncodeDefault var seenAt: Long = 0,
-    @EncodeDefault var updatedAt: Long = 0
+    @EncodeDefault var updatedAt: Long = 0,
+    @EncodeDefault var deleted: Boolean = false,
+    @EncodeDefault var receiveAcknowledged: Boolean = false,
+    @EncodeDefault var seenAcknowledged: Boolean = false,
+    @EncodeDefault var serverNotified: Boolean = false,
+    var published: Boolean = false,
+    var rendered: Boolean = false
 ){
     fun clone(): Chat{
         return Chat(

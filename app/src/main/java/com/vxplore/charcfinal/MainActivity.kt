@@ -1,6 +1,7 @@
 package com.vxplore.charcfinal
 
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,17 +24,88 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vxplore.charc.Chat
-import com.vxplore.charc.ChatPacketData
+import com.vxplore.charc.*
 import com.vxplore.charcfinal.ui.theme.CharcFinalTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlin.system.measureTimeMillis
 
 class MainActivity : ComponentActivity() {
     private val chats = mutableStateListOf<Chat>()
     val state = LazyListState()
-    val myId = App.instnace.charc.getSenderId()
+    var myId = mutableStateOf(App.instnace.charc.getSenderId())
     val peerId = mutableStateOf("")
+    private val onChangeCallback: OnChangeCallback = {
+        runOnUiThread {
+            populate()
+        }
+    }
+
+    private fun populate() {
+        CoroutineScope(Dispatchers.IO).launch {
+            val all:List<Chat> = App.instnace.charc.allForPeer(peerId.value,Charc.Purpose.RENDER)
+            if(all.isEmpty()){
+                return@launch
+            }
+            App.instnace.charc.markRendered(all)
+            mergeIncoming(all)
+            scrollToBottom()
+        }
+    }
+
+    private fun mergeIncoming(incomings: List<Chat>) {
+        incomings.forEach { incoming->
+            val existing = chats.find { existing->
+                existing.chatId==incoming.chatId
+            }
+            if(incoming.deleted&&existing!=null){
+                chats.remove(existing)
+            }
+            else{
+                if(existing==null){
+                    chats.add(incoming)
+                }
+                else{
+                    existing.apply {
+                        if(arrivedServerAt==0L&&incoming.arrivedServerAt>0){
+                            arrivedServerAt = incoming.arrivedServerAt
+                        }
+                        if(receivedAt==0L&&incoming.receivedAt>0){
+                            receivedAt = incoming.receivedAt
+                        }
+                        if(seenAt==0L&&incoming.seenAt>0){
+                            seenAt = incoming.seenAt
+                        }
+                    }
+                }
+            }
+        }
+        chats.sortBy {
+            it.createdAt
+        }
+    }
+
+    private fun scrollToBottom() {
+        if(chats.size>0){
+            CoroutineScope(Dispatchers.Main).launch {
+                if(chats.isNotEmpty()){
+                    state.scrollToItem(chats.size-1)
+                }
+            }
+        }
+    }
+
+    enum class Page{
+        LOGIN,
+        PEER,
+        CHAT
+    }
+    val currentPage = mutableStateOf(Page.LOGIN)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setPage()
         /*lifecycleScope.launch {
             val resp = App.instnace.charc.testRest()
             Log.d("test_rest",resp.data?.message?:"no response")
@@ -45,20 +117,22 @@ class MainActivity : ComponentActivity() {
 
         /*App.instnace.charc.sendChat()*/
 
+        if(savedInstanceState==null){
+            App.instnace.charc.registerListener(onChangeCallback)
+            myId.value = App.instnace.charc.getSenderId()
+        }
+
+
         setContent {
             CharcFinalTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colors.background
                 ) {
-                    if(App.instnace.charc.getSenderId().isEmpty()){
-                        LoginPage()
-                    }
-                    else if(peerId.value.isEmpty()){
-                        PeerPage()
-                    }
-                    else{
-                        ChatPage()
+                    when(currentPage.value){
+                        Page.LOGIN -> LoginPage()
+                        Page.PEER -> PeerPage()
+                        Page.CHAT -> ChatPage()
                     }
                 }
             }
@@ -151,31 +225,31 @@ class MainActivity : ComponentActivity() {
                 .width((configuration.screenWidthDp * messageCardMaxSizeFactor).dp)
                 .padding(messageCardMargin.dp)
                 .align(
-                    if (message.sender == myId) Alignment.CenterEnd else Alignment.CenterStart
+                    if (message.sender == myId.value) Alignment.CenterEnd else Alignment.CenterStart
                 )
             ){
                 Card(
                     modifier = Modifier
                         .wrapContentSize()
-                        .align(if (message.sender == myId) Alignment.CenterEnd else Alignment.CenterStart),
+                        .align(if (message.sender == myId.value) Alignment.CenterEnd else Alignment.CenterStart),
                     elevation = messageCardCornerElevation.dp,
-                    backgroundColor = if(message.sender == myId) Color.White else Color(0xff3838ff),
+                    backgroundColor = if(message.sender == myId.value) Color.White else Color(0xff3838ff),
                     shape = RoundedCornerShape(
                         topStart = messageCardCornerRadius.dp,
                         topEnd = messageCardCornerRadius.dp,
-                        bottomEnd = if(message.sender == myId) messageCardCornerRadius.dp else 0.dp,
-                        bottomStart = if(message.sender == myId) 0.dp else messageCardCornerRadius.dp
+                        bottomEnd = if(message.sender == myId.value) messageCardCornerRadius.dp else 0.dp,
+                        bottomStart = if(message.sender == myId.value) 0.dp else messageCardCornerRadius.dp
                     ),
                 ) {
                     Box(modifier = Modifier
                         .widthIn((configuration.screenWidthDp*messageCardMinSizeFactor).dp,(configuration.screenWidthDp*messageCardMaxSizeFactor).dp)){
                         Column(modifier = Modifier
-                            .align(if (message.sender == myId) Alignment.CenterEnd else Alignment.CenterStart)
+                            .align(if (message.sender == myId.value) Alignment.CenterEnd else Alignment.CenterStart)
                             .wrapContentSize()
                             .padding(messageCardPadding.dp),
-                            horizontalAlignment = if(message.sender == myId) Alignment.End else Alignment.Start
+                            horizontalAlignment = if(message.sender == myId.value) Alignment.End else Alignment.Start
                         ){
-                            if(message.sender != myId){
+                            if(message.sender != myId.value){
                                 Text(
                                     message.sender,
                                     fontWeight = FontWeight.Bold,
@@ -188,7 +262,7 @@ class MainActivity : ComponentActivity() {
                             }
                             Text(
                                 chapPacketData?.text?:"",
-                                color = if(message.sender == myId) Color.Blue else Color.White
+                                color = if(message.sender == myId.value) Color.Blue else Color.White
                             )
                             //Text(message.rtmMessage.serverReceivedTs.toString())
                         }
@@ -203,11 +277,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun sendMessage(text: String) {
+        App.instnace.charc.send(createNewTextChat(text))
+    }
 
+    private fun createNewTextChat(text: String): ChatPackets {
+        return ChatPackets(
+            items = listOf(
+                Chat(
+                    data = ChatPacketData(text = text).jsonString(),
+                    sender = myId.value,
+                    receiver = peerId.value
+                )
+            )
+        )
     }
 
     private fun deleteAllChats(peerId: String) {
-
+        App.instnace.charc.deleteAllFor(peerId)
     }
 
     @Composable
@@ -270,6 +356,8 @@ class MainActivity : ComponentActivity() {
         }
         else{
             peerId.value = value
+            setPage()
+            populate()
         }
     }
 
@@ -333,6 +421,22 @@ class MainActivity : ComponentActivity() {
         }
         else{
             App.instnace.charc.setSenderId(senderId)
+            myId.value = senderId
+            setPage()
+        }
+    }
+
+    private fun setPage() {
+        currentPage.value = when {
+            App.instnace.charc.getSenderId().isEmpty() -> {
+                Page.LOGIN
+            }
+            peerId.value.isEmpty() -> {
+                Page.PEER
+            }
+            else -> {
+                Page.CHAT
+            }
         }
     }
 }

@@ -5,7 +5,7 @@
   "entities": [
     {
       "id": "1:134214840944322819",
-      "lastPropertyId": "14:1136179676953329277",
+      "lastPropertyId": "13:6931877735736747628",
       "name": "Chat",
       "properties": [
         {
@@ -74,11 +74,6 @@
         {
           "id": "13:6931877735736747628",
           "name": "rendered",
-          "type": 1
-        },
-        {
-          "id": "14:1136179676953329277",
-          "name": "receiveAcknowledged",
           "type": 1
         }
       ],
